@@ -2,10 +2,15 @@ const AWS = require('aws-sdk');
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 const groupsTableName = process.env.GROUPS_TABLE;
 const connectionsTableName = process.env.CONNECTIONS_TABLE;
+const apiGatewayEndpoint = process.env.WEBSOCKET_ENDPOINT;
 
 exports.handler = async (event) => {
     const { groupId, userId } = JSON.parse(event.body);
     const connectionId = event.requestContext.connectionId;
+
+    const apiGateway = new AWS.ApiGatewayManagementApi({
+        endpoint: apiGatewayEndpoint
+    });
 
     try {
         // Retrieve the group information from DynamoDB
@@ -49,6 +54,29 @@ exports.handler = async (event) => {
                 userId: userId,
             }
         }).promise();
+
+        // Broadcast message to all connections that a new user has joined the chat
+        const connections = await dynamoDb.scan({
+            TableName: connectionsTableName,
+            FilterExpression: 'groupId = :groupId',
+            ExpressionAttributeValues: {
+                ':groupId': groupId
+            }
+        }).promise();
+
+        const postCalls = connections.Items.map(async ({ connectionId }) => {
+            await apiGateway.postToConnection({
+                ConnectionId: connectionId,
+                Data: JSON.stringify({
+                    action: 'userJoined',
+                    userId: userId,
+                    groupId: groupId,
+                    message: `${userId} has joined the chat.`
+                })
+            }).promise();
+        });
+
+        await Promise.all(postCalls);
 
         return { statusCode: 200, body: JSON.stringify({ message: "User joined chat successfully.", action: 'joinChat' }) };
     } catch (error) {
