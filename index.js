@@ -63,6 +63,8 @@ exports.handler = async (event) => {
                 ':groupId': groupId
             }
         }).promise();
+        console.log(connections);
+        console.log(connectionId);
 
         const postCalls = connections.Items.map(async ({ connectionId }) => {
             await apiGateway.postToConnection({
